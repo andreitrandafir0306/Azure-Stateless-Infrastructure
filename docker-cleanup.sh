@@ -40,6 +40,7 @@ Options:
   --lv                   Show all volumes
   --ln                   Show all networks
   --li                   Show all images
+  --la <file>            Show all containers, volumes, networks & images in a file of your choice
   --containers           Remove all containers
   --all                  Remove all containers, networks, volumes and images
   --status <status>      Remove containers by status (running, exited, paused, stopped)
@@ -101,6 +102,10 @@ remove_images () {
     echo "Removing images, standby ..."
 }
 
+ # Flag configuration with CASE
+
+flag_config()
+    
 
 # ------------------------------------------------
 # Lists
@@ -111,5 +116,11 @@ remove_images () {
 [[ $1 == "--lc" ]] && echo "Here are your containers..." && echo "" && sudo docker ps -a && exit 0
 [[ $1 == "--ln" ]] && echo "Here are your networks..." && echo "" && sudo docker network ls && exit 0
 [[ $1 == "--lv" ]] && echo "Here are your volumes..." && echo "" && sudo docker volume ls && exit 0
+[[ $1 == "--la" && $2 == * && $2 != "" ]] && sudo docker ps -a >> $2 && sudo docker images -a >> $2 && sudo docker network ls >> $2 && sudo docker volume ls >> $2  && exit 0
+[[ $1 == "--la" && $2 == "" ]] && echo "" && sudo docker ps -a && echo "" && sudo docker images -a && echo "" && sudo docker network ls && echo "" && sudo docker volume ls  && exit 0
+
+
+
+
 
 
