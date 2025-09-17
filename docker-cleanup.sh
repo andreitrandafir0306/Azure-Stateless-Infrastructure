@@ -4,9 +4,15 @@
 # Default variables (CLI flags / config can override them)
 # ------------------------------------------------
 
-AUTO_CONFIRM=${AUTO_CONFIRM:-false}
-DRY_RUN=${DRY_RUN:-false}
+AUTO_CONFIRM=${AUTO_CONFIRM:-"false"}
+DRY_RUN=${DRY_RUN:-"false"}
 LOGFILE=${LOGFILE:-"./logs/docker-cleaner.log"}
+remove_containers=${remove_containers:-"false"}
+remove_images=${remove_images:-"false"}
+remove_volumes=${remove_volumes:-"false"}
+remove_networks=${remove_networks:-"false"}
+remove_all=${remove_all:-"false"}
+
 
 # Load config file if available
 
@@ -77,10 +83,17 @@ remove_all() {
 # Remove containers
 
 remove_containers() {
-    echo "Removing containers, standby ..."
-    local ids=`docker ps -aq`
-    for id in "(ids[@])"; do 
-    [[ $DRY_RUN == true ]] && echo "DRY RUN: Container $id would be removed" || docker rm -f "$id" && log_action "Removed container $id"
+    echo ""
+    echo "Do you wish to remove all containers, just a container or multiple containers, but not all of them? Please type your answer below:"
+    read user_input
+    if [[ $user_input == "all" || $user_input == "All" || $user_input == "ALL" ]]
+    local ids=($(docker ps -aq))
+    for id in "${ids[@]}"; do 
+        if [[ $DRY_RUN == true ]]; then
+            echo "DRY RUN: Container $id would be removed"
+        else
+            docker rm -f $id && log_action "Removed container $id"
+        fi
     done
 }
 
@@ -99,12 +112,32 @@ remove_volumes () {
 # Remove images
 
 remove_images () {
-    echo "Removing images, standby ..."
+    read -p "Do you wish to remove all images, just an image or multiple images, but not all of them? Please type your answer below." user_input
+    local ids=($(docker images -aq))
+    for id in "${ids[@]}"; do
+        if [[ $DRY_RUN == true ]]; then
+            echo "DRY RUN: Image $id would be removed"
+        else
+            docker image rm -f $id
+        fi
+    done
 }
 
  # Flag configuration with CASE
 
-flag_config()
+flag_config() {
+    while [[ $# -gt 0 ]]; do
+        for arg in "$@"; do
+            case $arg in
+            --containers) remove_containers=true; shift ;;
+            --networks) remove_networks=true; shift ;;
+            --images) remove_images=true; shift;;
+            --dry-run) DRY_RUN=true; shift ;;
+            *) echo "Unknown option: $1! Please try again!"; exit 1 ;;
+            esac
+        done
+    done
+}
     
 
 # ------------------------------------------------
@@ -120,7 +153,13 @@ flag_config()
 [[ $1 == "--la" && $2 == "" ]] && echo "" && sudo docker ps -a && echo "" && sudo docker images -a && echo "" && sudo docker network ls && echo "" && sudo docker volume ls  && exit 0
 
 
+flag_config "$@"
 
 
+# ------------------------------------------------
+# Function execution logic -> it needs to run regardless of the param position
+# ------------------------------------------------
 
+[[ $remove_containers == true ]] && remove_containers
+[[ $remove_images == true ]] && remove_images
 
