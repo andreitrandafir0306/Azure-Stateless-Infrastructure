@@ -1,27 +1,23 @@
 #!/bin/bash
 
-# ------------------------------------------------
-# Default variables (CLI flags / config can override them)
-# ------------------------------------------------
+# -------------------------------------------------------
+# Default variables (CLI flags can override them)
+# -------------------------------------------------------
 
 AUTO_CONFIRM=${AUTO_CONFIRM:-"false"}
 DRY_RUN=${DRY_RUN:-"false"}
 LOGFILE=${LOGFILE:-"./logs/docker-cleaner.log"}
-remove_containers=${remove_containers:-"false"}
-remove_images=${remove_images:-"false"}
-remove_volumes=${remove_volumes:-"false"}
-remove_networks=${remove_networks:-"false"}
-remove_all=${remove_all:-"false"}
+REMOVE_CONTAINERS=${REMOVE_CONTAINERS:-false}
+REMOVE_IMAGES=${REMOVE_IMAGES:-false}
+REMOVE_VOLUMES=${REMOVE_VOLUMES:-false}
+REMOVE_NETWORKS=${REMOVE_NETWORKS:-false}
+REMOVE_ALL=${REMOVE_ALL:-false}
+resource_type="containers"
 
 
-# Load config file if available
-
-CONFIG_FILE="~/.docker-cleanup.conf"
-[[ -f $CONFIG_FILE ]] && source $CONFIG_FILE
-
-# ------------------------------------------------
+# ---------
 # Functions
-# ------------------------------------------------
+# ---------
 
 # EMPTY PARAMS
 
@@ -72,29 +68,47 @@ log_action() {
 [[ "$#" == 0 ]] && empty_param && exit 0
 [[ "$1" == "--help" || "$1" == "-h" ]] && show_help && exit 0
 
+# Confirm action
 
-# Remove everything after warning user
+confirm_action () {
+    [[ $AUTO_CONFIRM == true || $DRY_RUN == true ]] && return 0 # return is used to exit functions, exit for exiting the script
+    read -p "Are you sure? This process is irreversible! Only acceptable answers are Yes/No" input
+    if [[ $input == "Yes" ]]; then return 0
+    else echo "Aborting..." && return 1
+    fi
+}
+
+
+# Remove everything
 
 remove_all() {
-    echo "Cleaning up docker images, standby ..."
-    sudo docker images prune -af
+        local ids=($(docker ps -aq))
+        if confirm_action "Yes"; then
+            for id in "${ids[@]}"; do 
+            docker rm -f $id 
+            done
+            echo "Removing everything standby..." && \
+            docker image prune -af && \
+            docker network prune -f && \
+            docker volume prune -af && \
+            echo "Done!"
+        fi
 }
 
 # Remove containers
 
 remove_containers() {
-    echo ""
-    echo "Do you wish to remove all containers, just a container or multiple containers, but not all of them? Please type your answer below:"
-    read user_input
-    if [[ $user_input == "all" || $user_input == "All" || $user_input == "ALL" ]]
     local ids=($(docker ps -aq))
-    for id in "${ids[@]}"; do 
-        if [[ $DRY_RUN == true ]]; then
-            echo "DRY RUN: Container $id would be removed"
-        else
-            docker rm -f $id && log_action "Removed container $id"
-        fi
-    done
+    [[ ${#ids[@]} -eq 0 ]] && echo "No containers to remove.." && return
+    if confirm_action "Yes"; then
+        for id in "${ids[@]}"; do 
+            if [[ $DRY_RUN == true ]]; then
+                echo "DRY RUN: Container $id would be removed"
+            else
+                docker rm -f $id && log_action "Removed container $id"
+            fi
+        done
+    fi
 }
 
 # Remove networks
@@ -112,15 +126,17 @@ remove_volumes () {
 # Remove images
 
 remove_images () {
-    read -p "Do you wish to remove all images, just an image or multiple images, but not all of them? Please type your answer below." user_input
     local ids=($(docker images -aq))
-    for id in "${ids[@]}"; do
-        if [[ $DRY_RUN == true ]]; then
-            echo "DRY RUN: Image $id would be removed"
-        else
-            docker image rm -f $id
-        fi
-    done
+    [[ ${#ids[@]} -eq 0 ]] && echo "No images to remove.." && return
+    if confirm_action "Yes"; then
+        for id in "${ids[@]}"; do
+            if [[ $DRY_RUN == true ]]; then
+                echo "DRY RUN: Image $id would be removed"
+            else
+                docker image rm -f $id
+            fi
+        done
+    fi
 }
 
  # Flag configuration with CASE
@@ -129,37 +145,97 @@ flag_config() {
     while [[ $# -gt 0 ]]; do
         for arg in "$@"; do
             case $arg in
-            --containers) remove_containers=true; shift ;;
-            --networks) remove_networks=true; shift ;;
-            --images) remove_images=true; shift;;
-            --dry-run) DRY_RUN=true; shift ;;
+            --containers) 
+            REMOVE_CONTAINERS=true
+            shift 
+             ;;
+            --networks) 
+            REMOVE_NETWORKS=true
+            shift 
+            ;;
+            --images)
+            REMOVE_IMAGES=true
+            shift
+            ;;
+            --volumes)
+            REMOVE_VOLUMES=true
+            shift
+            ;;
+            --dry-run) 
+            DRY_RUN=true
+            shift 
+            ;;
+            -y | --yes)
+            AUTO_CONFIRM=true
+            shift
+            ;;
+            --all)
+            REMOVE_ALL=true
+            shift
+            ;;
             *) echo "Unknown option: $1! Please try again!"; exit 1 ;;
             esac
         done
     done
 }
-    
-
-# ------------------------------------------------
-# Lists
-# ------------------------------------------------
 
 
-[[ $1 == "--li" ]] && echo "Here are your images..." && echo "" && sudo docker images -a && exit 0
-[[ $1 == "--lc" ]] && echo "Here are your containers..." && echo "" && sudo docker ps -a && exit 0
-[[ $1 == "--ln" ]] && echo "Here are your networks..." && echo "" && sudo docker network ls && exit 0
-[[ $1 == "--lv" ]] && echo "Here are your volumes..." && echo "" && sudo docker volume ls && exit 0
-[[ $1 == "--la" && $2 == * && $2 != "" ]] && sudo docker ps -a >> $2 && sudo docker images -a >> $2 && sudo docker network ls >> $2 && sudo docker volume ls >> $2  && exit 0
-[[ $1 == "--la" && $2 == "" ]] && echo "" && sudo docker ps -a && echo "" && sudo docker images -a && echo "" && sudo docker network ls && echo "" && sudo docker volume ls  && exit 0
+
+# ------------------
+# Lists of resources 
+# ------------------
+
+# images
+[[ $1 == "--li" ]] && echo "Here are your images..." && echo "" && docker images -a && exit 0
+
+# containers
+[[ $1 == "--lc" ]] && echo "Here are your containers..." && echo "" &&  docker ps -a && exit 0
+
+# networks
+[[ $1 == "--ln" ]] && echo "Here are your networks..." && echo "" &&  docker network ls && exit 0
+
+# volumes
+[[ $1 == "--lv" ]] && echo "Here are your volumes..." && echo "" &&  docker volume ls && exit 0
+
+# list everything in desginated file
+[[ $1 == "--la" && $2 == * && $2 != "" ]] && echo "The list was redirected to $2" && \
+     docker ps -a >> $2 && \
+    echo "" >> $2 && \
+    docker images -a >> $2 && \
+    echo "" >> $2 && \
+    docker network ls >> $2 && \
+    echo "" >> $2 && \
+    docker volume ls >> $2  && \
+    echo "" >> $2 && \
+    exit 0
+
+# list everything to stdout
+[[ $1 == "--la" && $2 == "" ]] && echo "" && \
+    docker ps -a && \
+    echo "" && \
+    docker images -a && \
+    echo "" && \
+    docker network ls && \
+    echo "" && \
+    docker volume ls &&\
+    exit 0
 
 
-flag_config "$@"
+# ----------------------------------------------------------------------------
+# Function execution logic -> they need to run regardless of the param position
+# Interactive confirmation prompt feature (with no -y or --yes)
+# With -y or --yes the script executes automatically
+# ----------------------------------------------------------------------------
+
+flag_config "$@" # PUT AFTER EVERYTHING SO THAT IT WON'T INTERFERE WITH THE LISTS
+
+#[[ $REMOVE_CONTAINERS == true ]] && remove_containers
+[[ $REMOVE_IMAGES == true ]] && remove_images
+#[[ $REMOVE_VOLUMES == true ]] && remove_volumes
+#[[ $REMOVE_NETWORKS == true ]] && remove_networks
+[[ $REMOVE_ALL == true ]] && remove_all
 
 
-# ------------------------------------------------
-# Function execution logic -> it needs to run regardless of the param position
-# ------------------------------------------------
 
-[[ $remove_containers == true ]] && remove_containers
-[[ $remove_images == true ]] && remove_images
+
 
