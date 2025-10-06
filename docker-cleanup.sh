@@ -4,9 +4,9 @@
 # Default variables (CLI flags can override them)
 # -------------------------------------------------------
 
-AUTO_CONFIRM=${AUTO_CONFIRM:-"false"}
-DRY_RUN=${DRY_RUN:-"false"}
-LOGFILE=${LOGFILE:-"./logs/docker-cleanup.log"}
+AUTO_CONFIRM=${AUTO_CONFIRM:-false}
+DRY_RUN=${DRY_RUN:-false}
+LOGFILE=${LOGFILE:-"./docker-cleanup/logs"}
 REMOVE_CONTAINERS=${REMOVE_CONTAINERS:-false}
 REMOVE_IMAGES=${REMOVE_IMAGES:-false}
 REMOVE_VOLUMES=${REMOVE_VOLUMES:-false}
@@ -14,9 +14,22 @@ REMOVE_NETWORKS=${REMOVE_NETWORKS:-false}
 REMOVE_ALL=${REMOVE_ALL:-false}
 
 
-# ---------
+# -------------------------------------------------------
+# Check for Docker and exit if failed
+# -------------------------------------------------------
+
+if ! command -v docker &>/dev/null; then
+  echo "Docker not found. Please install Docker and retry!"; exit 1
+fi
+
+set -eo pipefail
+
+
+# -------------------------------------------------------
 # Functions
-# ---------
+# -------------------------------------------------------
+
+
 
 # EMPTY PARAMS
 
@@ -25,6 +38,7 @@ empty_param() {
 
 This script is used to clean up docker images, containers, networks and volumes.
 It also has logging for debugging or other isuses.
+Default log file: $LOGFILE
 If you need further assistance, use -h or --help.
 
 EOF
@@ -60,20 +74,23 @@ EOF
 
 
 log_action() {
+    LOG_LOCATION="$LOGFILE/cleanup_$(date +%F).log"
+    [[ ! -d $LOGFILE ]] && mkdir -p $LOGFILE && touch $LOG_LOCATION
     local msg="$1"
-    echo "$(date '+%F %T') - $msg" | tee -a "$LOGFILE"
+    echo "$(date '+%F %T') - $msg" | tee -a "$LOG_LOCATION"
 }
 
 [[ "$#" == 0 ]] && empty_param && exit 0
 [[ "$1" == "--help" || "$1" == "-h" ]] && show_help && exit 0
 
+
 # Confirm action
 
 confirm_action () {
     [[ $AUTO_CONFIRM == true || $DRY_RUN == true ]] && return 0 # return is used to exit functions, exit for exiting the script
-    read -p "Are you sure? This process is irreversible! Only acceptable answers are Yes/No" input
-    if [[ $input == "Yes" ]]; then return 0
-    else echo "Aborting..." && return 1
+    read -p "Are you sure? This process is irreversible! Yes/No" input
+    if [[ $input == "Yes" || $input == "yes" || $input == "YES" ]]; then return 0
+    else log_action "Aborting..." && return 1
     fi
 }
 
@@ -81,21 +98,16 @@ confirm_action () {
 # Remove everything
 
 remove_all() {
-        local ids=($(docker ps -aq))
-        if confirm_action "Yes"; then
+        if confirm_action; then
             if [[ $DRY_RUN == true ]]; then
-                echo "DRY RUN: This process removes every container, every image, every unused network and every unused volume. Use it carefully!"
+                log_action "DRY RUN: This process removes every container, every image, every unused network and every unused volume. Use it carefully!"
             else
-            echo "" && echo "Removing everything standby..." && echo ""
-            for id in "${ids[@]}"; do 
-                docker rm -f $id
-            done
-                docker image prune -af && \
-                docker network prune -f && \
-                docker volume prune -af && \
-                echo "" && \
-                echo "Done!" && \
-                echo ""
+            log_action "" && log_action "Removing everything standby..." && log_action ""
+                docker container prune -f && log_action "Removed all containers" && \
+                docker image prune -af && log_action "Removed all images" && \
+                docker network prune -f && log_action "Removed all networks" && \
+                docker volume prune -af && log_action "Removed all volumes" && \
+                log_action "Done!"
             fi
         fi
 }
@@ -104,11 +116,11 @@ remove_all() {
 
 remove_containers() {
     local ids=($(docker ps -aq))
-    [[ ${#ids[@]} -eq 0 ]] && echo "No containers to remove..." && return
-    if confirm_action "Yes"; then
+    [[ ${#ids[@]} -eq 0 ]] && log_action "No containers to remove..." && return 1
+    if confirm_action; then
         for id in "${ids[@]}"; do 
             if [[ $DRY_RUN == true ]]; then
-                echo "DRY RUN: Container $id would be removed"
+                log_action "DRY RUN: Container $id would be removed"
             else
                 docker rm -f $id && log_action "Removed container $id"
             fi
@@ -120,12 +132,13 @@ remove_containers() {
 
 remove_containers_status() {
     local status=$1
+    [[ $status != "exited" && $status != "paused" && $status != "running" ]] && log_action "Wrong status selected! Please try again! Status $status is not valid!" && return 1
     local ids=($(docker ps -aq -f status=$status))
-    [[ ${#ids[@]} -eq 0 ]] && echo "No containers with the status $status to remove..." && return
-    if confirm_action "Yes"; then
+    [[ ${#ids[@]} -eq 0 ]] && log_action "No containers with the status $status to remove..." && return 1
+    if confirm_action; then
         for id in "${ids[@]}"; do 
             if [[ $DRY_RUN == true ]]; then
-                echo "DRY RUN: Container $id with the status $status would be removed"
+                log_action "DRY RUN: Container $id with the status $status would be removed"
             else
                 docker rm -f $id && log_action "Removed container $id with status $status"
             fi
@@ -138,10 +151,10 @@ remove_containers_status() {
 
 remove_networks () {
     local ids=($(docker network ls -q))
-    [[ ${#ids[@]} -eq 3 ]] && echo "No networks to remove... The three default networks cannot be deleted!" && return
-    if confirm_action "Yes"; then
+    [[ ${#ids[@]} -eq 3 ]] && log_action "No networks to remove... The three default networks cannot be deleted!" && return 1
+    if confirm_action; then
         if [[ $DRY_RUN == true ]]; then
-                echo "DRY RUN: Every network not named "bridge", "host" or "none" will be removed because default networks cannot be deleted!"
+                log_action "DRY RUN: Every network not named "bridge", "host" or "none" will be removed because default networks cannot be deleted!"
             else
                 for id in "${ids[@]}"; do 
                 docker network rm -f 2> /dev/null $id && log_action "Removed network $id"
@@ -154,11 +167,11 @@ remove_networks () {
 
 remove_volumes () {
     local ids=($(docker volume ls -q))
-    [[ ${#ids[@]} -eq 0 ]] && echo "No volumes to remove..." && return
-    if confirm_action "Yes"; then
+    [[ ${#ids[@]} -eq 0 ]] && log_action "No volumes to remove..." && return 1
+    if confirm_action; then
         for id in "${ids[@]}"; do 
             if [[ $DRY_RUN == true ]]; then
-                echo "DRY RUN: Volume $id would be removed"
+                log_action "DRY RUN: Volume $id would be removed"
             else
                 docker volume rm -f $id && log_action "Removed volume $id"
             fi
@@ -170,13 +183,13 @@ remove_volumes () {
 
 remove_images () {
     local ids=($(docker images -aq))
-    [[ ${#ids[@]} -eq 0 ]] && echo "No images to remove.." && return
-    if confirm_action "Yes"; then
+    [[ ${#ids[@]} -eq 0 ]] && log_action "No images to remove..." && return 1
+    if confirm_action; then
         for id in "${ids[@]}"; do
             if [[ $DRY_RUN == true ]]; then
-                echo "DRY RUN: Image $id would be removed"
+                log_action "DRY RUN: Image $id would be removed"
             else
-                docker image rm -f $id
+                docker image rm -f $id && log_action "Removed image $id"
             fi
         done
     fi
@@ -216,14 +229,20 @@ flag_config() {
             shift
             ;;
             --status)
+            if [[ -z $2 ]]; then
+            log_action "Error: missing status value after --status flag (expected: running, paused, exited)"
+            fi
             REMOVE_CONTAINERS=true
             STATUS_FILTER=$2
             shift 2
             ;;
             --log)
-            echo "Add log file" # To be continued 
+            LOGFILE=$2
+            shift 2
             ;;
-            *) echo "Unknown option! Please try again!"; exit 1 ;;
+            *) 
+            echo "Error: Unknown option $1! Please try again!";
+            exit 1 ;;
             esac
     done
 }
@@ -238,17 +257,17 @@ flag_config() {
 [[ $1 == "--li" ]] && echo "Here are your images..." && echo "" && docker images -a && exit 0
 
 # containers
-[[ $1 == "--lc" ]] && echo "Here are your containers..." && echo "" &&  docker ps -a && exit 0
+[[ $1 == "--lc" ]] && echo "Here are your containers..." && echo "" && docker ps -a && exit 0
 
 # networks
-[[ $1 == "--ln" ]] && echo "Here are your networks..." && echo "" &&  docker network ls && exit 0
+[[ $1 == "--ln" ]] && echo "Here are your networks..." && echo "" && docker network ls && exit 0
 
 # volumes
-[[ $1 == "--lv" ]] && echo "Here are your volumes..." && echo "" &&  docker volume ls && exit 0
+[[ $1 == "--lv" ]] && echo "Here are your volumes..." && echo "" && docker volume ls && exit 0
 
 # list everything in desginated file
-[[ $1 == "--la" && $2 == * && $2 != "" ]] && echo "The list was redirected to $2" && \
-     docker ps -a >> $2 && \
+[[ $1 == "--la" && -n ${2:-} ]] && echo "The list was redirected to $2" && \
+    docker ps -a >> $2 && \
     echo "" >> $2 && \
     docker images -a >> $2 && \
     echo "" >> $2 && \
@@ -259,7 +278,7 @@ flag_config() {
     exit 0
 
 # list everything to stdout
-[[ $1 == "--la" && $2 == "" ]] && echo "" && \
+[[ $1 == "--la" ]] && echo "" && \
     docker ps -a && \
     echo "" && \
     docker images -a && \
@@ -278,20 +297,17 @@ flag_config() {
 
 flag_config "$@" # PUT AFTER EVERYTHING SO THAT IT WON'T INTERFERE WITH THE LISTS
 
-if [[ $STATUS_FILTER == "exited" || $STATUS_FILTER == "paused" || $STATUS_FILTER == "running" && -n $STATUS_FILTER && $REMOVE_CONTAINERS == true ]]; then
-    remove_containers_status $STATUS_FILTER
-elif [[ $STATUS_FILTER != "exited" && $STATUS_FILTER != "paused" && $STATUS_FILTER != "running" ]]; then
-    echo "Wrong status selected! Please try again!" && exit 1
-elif [[ $REMOVE_CONTAINERS == true ]]; then
-    remove_containers
-fi
 
 [[ $REMOVE_IMAGES == true ]] && remove_images
 [[ $REMOVE_VOLUMES == true ]] && remove_volumes
 [[ $REMOVE_NETWORKS == true ]] && remove_networks
 [[ $REMOVE_ALL == true ]] && remove_all
 
-
+if [[ -n $STATUS_FILTER && $REMOVE_CONTAINERS == true ]]; then
+    remove_containers_status $STATUS_FILTER
+elif [[ $REMOVE_CONTAINERS == true ]]; then
+    remove_containers
+fi
 
 
 
