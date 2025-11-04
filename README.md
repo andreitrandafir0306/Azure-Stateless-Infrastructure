@@ -1,17 +1,7 @@
 # Docker-Cleanup-CLI
-This CLI is written exclusively in BASH and can be used to clean up docker images, containers, networks and volumes. It also has logging for debugging or other isuses.
 
+This project is currently an MVP (Minimum Viable Product). Future plans are:
 
-#### 1. Define parameters and filters for containers
-
-#### 2. Create image compatibility
-
-#### 3. Create volume compatibility
-
-#### 4. Create network compatibility
-
-#### 5. Create dry-run
-
-#### 6. Create logging
-
-#### 7. Create config file
+1. Infrastructure deployment with Terraform in AWS -> create EC2 instances in a VPC
+2. Ansible to install the CLI on the VMs & insert it to /bin
+3. Use all of the tools for a full CI/CD automation with GitHub Actions

@@ -55,7 +55,7 @@ Options:
   --lv                   Show all volumes
   --ln                   Show all networks
   --li                   Show all images
-  --la <file>            Show all containers, volumes, networks & images in a file of your choice
+  --la                   Show all containers, volumes, networks & images
   --containers           Remove all containers
   --all                  Remove all containers, networks, volumes and images
   --status <status>      Remove containers by status (running, paused, exited)
@@ -265,19 +265,7 @@ flag_config() {
 # volumes
 [[ $1 == "--lv" ]] && echo "Here are your volumes..." && echo "" && docker volume ls && exit 0
 
-# list everything in desginated file
-[[ $1 == "--la" && -n ${2:-} ]] && echo "The list was redirected to $2" && \
-    docker ps -a >> $2 && \
-    echo "" >> $2 && \
-    docker images -a >> $2 && \
-    echo "" >> $2 && \
-    docker network ls >> $2 && \
-    echo "" >> $2 && \
-    docker volume ls >> $2  && \
-    echo "" >> $2 && \
-    exit 0
-
-# list everything to stdout
+# list everything
 [[ $1 == "--la" ]] && echo "" && \
     docker ps -a && \
     echo "" && \
@@ -285,7 +273,7 @@ flag_config() {
     echo "" && \
     docker network ls && \
     echo "" && \
-    docker volume ls &&\
+    docker volume ls && \
     exit 0
 
 
