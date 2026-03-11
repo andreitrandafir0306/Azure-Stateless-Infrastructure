@@ -171,9 +171,8 @@ jobs:
 
             ansible-playbook asi_playbook.yaml \
               -i inventory.azure_rm.yaml \
-              -v
 
-            EOF
+          EOF
       
       - name: Cleanup SSH key even when job fails
         if: always()
