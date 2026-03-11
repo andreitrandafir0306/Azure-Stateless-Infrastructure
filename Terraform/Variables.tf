@@ -8,5 +8,5 @@ variable "public_key" {
 # Define resource group 
 
 variable "rg" {
-  type      = string
+  type = string
 }

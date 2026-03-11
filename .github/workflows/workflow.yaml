@@ -27,6 +27,7 @@ jobs:
 
     outputs:
       control_node_ip: ${{ steps.tf_output.outputs.control_node_ip }}
+      control_node_prv_ip: ${{ steps.tf_prv_output.outputs.control_node_ip }}
     
     steps:
       - name: Checkout repository
@@ -67,13 +68,19 @@ jobs:
         env:
           TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
 
-
       - name: Extract Control Node Public IP
         id: tf_output
         working-directory: ./Terraform
         run: |
           CONTROL_NODE_IP=$(terraform output -raw control_node_ip)
           echo "control_node_ip=$CONTROL_NODE_IP" >> $GITHUB_OUTPUT
+
+      - name: Extract Control Node Private IP
+        id: tf_prv_output
+        working-directory: ./Terraform
+        run: |
+          CONTROL_NODE_PRV_IP=$(terraform output -raw control_node_prv_ip)
+          echo "control_node_prv_ip=$CONTROL_NODE_PRV_IP" >> $GITHUB_OUTPUT
 
   configure:
     name: Configure & Deploy (Ansible)
@@ -102,7 +109,7 @@ jobs:
           --direction inbound \
           --access Allow \
           --source-address-prefixes "$RUNNER_IP/32" \
-          --destination-address-prefixes "${{ needs.provision.outputs.control_node_ip }}/32" \
+          --destination-address-prefixes "${{ needs.provision.outputs.control_node_prv_ip }}/32" \
           --destination-port-ranges 22 \
           --protocol Tcp \
           --description "Allow single-source SSH access to control node"
