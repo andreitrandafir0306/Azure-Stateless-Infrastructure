@@ -93,6 +93,7 @@ jobs:
 
       - name: Create NSG rule for single-source access to the control node
         run: |
+          RUNNER_IP=$(curl -s https://ifconfig.me)
           az network nsg rule create \
           --resource-group ${{ vars.TF_BACKEND_RESOURCE_GROUP }} \
           --nsg-name asi-nsg \
