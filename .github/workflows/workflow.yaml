@@ -1,0 +1,212 @@
+name: Azure-Stateless-Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  id-token: write # required for OIDC token request to Azure
+  contents: read # required for actions / checkout
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
+  TF_BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
+  TF_BACKEND_CONTAINER: ${{ vars.TF_BACKEND_CONTAINER }}
+  TF_BACKEND_KEY: ${{ vars.TF_BACKEND_KEY }}
+
+jobs:
+
+  provision:
+    name: Generate Infrastructure (Terraform)
+    runs-on: ubuntu-latest
+
+    outputs:
+      control_node_ip: ${{ steps.tf_output.outputs.control_node_ip }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.6"
+          terraform_wrapper: false # setting to true can interfere with manual output capture
+
+      - name: Terraform Init
+        working-directory: ./Terraform
+        run: |
+          terraform init \
+            -backend-config="resource_group_name=${{ env.TF_BACKEND_RESOURCE_GROUP }}" \
+            -backend-config="storage_account_name=${{ env.TF_BACKEND_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=${{ env.TF_BACKEND_CONTAINER }}" \
+            -backend-config="key=${{ env.TF_BACKEND_KEY }}"
+
+      - name: Terraform Plan
+        working-directory: ./Terraform
+        run: terraform plan -out=tfplan
+        env:
+          TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
+          TF_VAR_rg: ${{ vars.TF_RESOURCE_GROUP }}
+      
+      - name: Terraform Apply
+        working-directory: ./Terraform
+        run: terraform apply -auto-approve tfplan
+        env:
+          TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
+
+
+      - name: Extract Control Node Public IP
+        id: tf_output
+        working-directory: ./Terraform
+        run: |
+          CONTROL_NODE_IP=$(terraform output -raw control_node_ip)
+          echo "control_node_ip=$CONTROL_NODE_IP" >> $GITHUB_OUTPUT
+      
+      - name: Configure NSG rule for single-source access to the control node
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          az network nsg rule create \
+          --resource-group ${{ vars.TF_BACKEND_RESOURCE_GROUP }} \
+          --nsg-name asi-nsg \
+          --name Control-node-access \
+          --priority 100 \
+          --direction inbound \
+          --access Allow \
+          --source-address-prefixes '${{ curl https://ifconfig.me -s --proto '=https' --tlsv1.2 }}/32'
+          --source-port-ranges '*'
+          --destination-address-prefixes '$RUNNER_IP/32' \
+          --destination-port-ranges 22 \
+          --protocol Tcp \
+          --description "Allow single-source SSH access to control node"
+
+  configure:
+    name: Configure & Deploy (Ansible)
+    runs-on: ubuntu-latest
+    needs: provision # conditional key-value pair which runs only if provision succeeds, else return err
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.CONTROL_NODE_SSH_PRIVATE_KEY }}" > ~/.ssh/control_node_key
+          chmod 600 ~/.ssh/control_node_key
+      
+      - name: Copy .hushlogin to Control Node
+        run: |
+          touch .hushlogin
+          scp -i ~/.ssh/control_node_key \
+              -o StrictHostKeyChecking=no \
+              -q .hushlogin \
+              ansible-tower@${{ needs.provision.outputs.control_node_ip }}:~/.hushlogin
+
+      - name: Copy Private Key to Control Node
+        run: |
+          scp -i ~/.ssh/control_node_key \
+              -o StrictHostKeyChecking=no \
+              -q ~/.ssh/control_node_key \
+              ansible-tower@${{ needs.provision.outputs.control_node_ip }}:~/.ssh/dest_private_key
+
+      - name: Copy Ansible dir to Control Node
+        run: |
+          scp -i ~/.ssh/control_node_key \
+              -o StrictHostKeyChecking=no \
+              -r -q ./ansible \
+              ansible-tower@${{ needs.provision.outputs.control_node_ip }}:~/ansible
+          
+      
+      - name: Install Ansible & Run Playbook on Control Node
+        run: |
+          ssh -i ~/.ssh/control_node_key \
+              -o StrictHostKeyChecking=no \
+              -q ansible-tower@${{ needs.provision.outputs.control_node_ip }} << 'EOF' 2>&1 | tee ~/ansible_run.log
+            
+            set -e
+
+            export ANSIBLE_REMOTE_USER="managed-node"
+            export ANSIBLE_PRIVATE_KEY_FILE="$HOME/.ssh/dest_private_key"
+            export ANSIBLE_HOST_KEY_CHECKING="False"
+
+            sudo apt-get update -y -q
+            sudo apt-get install -y -q python3-pip python3-venv
+
+            python3 -m venv ~/ansible-venv
+            source ~/ansible-venv/bin/activate
+
+            pip install --quiet ansible azure-identity msrestazure
+
+            ansible-galaxy collection install azure.azcollection --force -q
+            pip install --quiet \
+              -r ~/.ansible/collections/ansible_collections/azure/azcollection/requirements.txt
+            
+            cd ~/ansible
+
+            ansible-playbook playbook.yaml \
+              -i inventory.azure_rm.yaml \
+              -v
+
+            EOF
+
+      - name: Upload log as GH Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ansible-playbook-output
+          path: ./ansible_run.log
+          retention-days: 3
+      
+      - name: Cleanup SSH key even when job fails
+        if: always()
+        run: rm -f ~/.ssh/control_node_key
+
+  destroy:
+    name: Destroy Infrastructure (Terraform)
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.6"
+          terraform_wrapper: false # setting to true can interfere with manual output capture
+
+      - name: Terraform Init
+        working-directory: ./Terraform
+        run: terraform init \
+              -backend-config="resource_group_name=${{ env.TF_BACKEND_RESOURCE_GROUP }}" \
+              -backend-config="storage_account_name=${{ env.TF_BACKEND_STORAGE_ACCOUNT }}" \
+              -backend-config="container_name=${{ env.TF_BACKEND_CONTAINER }}" \
+              -backend-config="key=${{ env.TF_BACKEND_KEY }}"
+
+      - name: Terraform Destroy
+        working-directory: ./Terraform
+        run: terraform destroy -auto-approve
+        env:
+          TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
+          TF_VAR_rg: ${{ vars.TF_RESOURCE_GROUP }}

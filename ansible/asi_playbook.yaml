@@ -1,0 +1,87 @@
+- name: Managed Nodes Collection
+  hosts: all
+  become: true
+  tasks: 
+
+    - name: Update and upgrade
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+        update_cache: yes
+
+    - name: Install python3   
+      apt:
+        name:
+          - python3
+          - python3-pip
+        state: present
+    
+    - name: Install Docker prerequisites
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+
+    - name: Create Docker keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Docker GPG key
+      shell: |
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+        gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+      args:
+        creates: /etc/apt/keyrings/docker.gpg
+
+    - name: Add Docker repository
+      shell: |
+        echo \
+        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+        https://download.docker.com/linux/ubuntu \
+        $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Update apt cache after adding Docker repo
+      apt:
+        update_cache: yes
+
+    - name: Install Docker Engine
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+
+    - name: Ensure Docker service is started and enabled
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Check Docker version
+      command: docker --version
+
+    - name: Pull image from DockerHub and run help command
+      community.docker.docker_image:
+        name: "andreitrandafir0306/docker-cleanup"
+        tag: "1.0"
+        source: pull
+        
+    - name: Run test container from pulled image
+      ansible.builtin.command: > 
+        docker run --name test --rm andreitrandafir0306/docker-cleanup:1.0 --help
+      register: cli_output
+
+    - name: Output the logs
+      debug:
+        msg: "{{ cli_output.stdout_lines }}"

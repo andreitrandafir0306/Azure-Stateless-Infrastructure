@@ -1,0 +1,5 @@
+plugin: azure.azcollection.azure_rm
+auth_source: msi
+tags:
+  role:
+    - managed-node
