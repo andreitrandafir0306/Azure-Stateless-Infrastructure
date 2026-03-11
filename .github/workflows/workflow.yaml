@@ -164,24 +164,16 @@ jobs:
             pip install --quiet ansible azure-identity msrestazure
 
             ansible-galaxy collection install azure.azcollection --force
-            pip install \
+            pip install --quiet \
               -r ~/.ansible/collections/ansible_collections/azure/azcollection/requirements.txt
             
             cd ~/ansible
 
-            ansible-playbook playbook.yaml \
+            ansible-playbook asi_playbook.yaml \
               -i inventory.azure_rm.yaml \
               -v
 
             EOF
-
-      - name: Upload log as GH Artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ansible-playbook-output
-          path: ./ansible_run.log
-          retention-days: 3
       
       - name: Cleanup SSH key even when job fails
         if: always()
