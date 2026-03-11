@@ -27,7 +27,7 @@ jobs:
 
     outputs:
       control_node_ip: ${{ steps.tf_output.outputs.control_node_ip }}
-      control_node_prv_ip: ${{ steps.tf_prv_output.outputs.control_node_ip }}
+      control_node_prv_ip: ${{ steps.tf_prv_output.outputs.control_node_prv_ip }}
     
     steps:
       - name: Checkout repository
