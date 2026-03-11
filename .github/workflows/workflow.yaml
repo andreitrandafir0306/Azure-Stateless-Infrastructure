@@ -177,7 +177,9 @@ jobs:
   destroy:
     name: Destroy Infrastructure (Terraform)
     runs-on: ubuntu-latest
-    if: always()
+    needs: [provision, configure]
+    if: always() && needs.provision.result != 'skipped'
+
 
     steps:
       - name: Checkout repository
