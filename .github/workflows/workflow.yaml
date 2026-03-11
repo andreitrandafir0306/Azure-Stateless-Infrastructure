@@ -118,7 +118,7 @@ jobs:
           touch ~/.hushlogin
           scp -i ~/.ssh/control_node_key \
               -o StrictHostKeyChecking=no \
-              -q ~.hushlogin \
+              -q ~/.hushlogin \
               ansible-tower@${{ needs.provision.outputs.control_node_ip }}:~/.hushlogin
 
       - name: Copy Private Key to Control Node
@@ -156,8 +156,8 @@ jobs:
 
             pip install --quiet ansible azure-identity msrestazure
 
-            ansible-galaxy collection install azure.azcollection --force -q
-            pip install --quiet \
+            ansible-galaxy collection install azure.azcollection --force
+            pip install \
               -r ~/.ansible/collections/ansible_collections/azure/azcollection/requirements.txt
             
             cd ~/ansible
