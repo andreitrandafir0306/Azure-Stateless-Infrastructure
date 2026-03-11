@@ -85,9 +85,8 @@ jobs:
           --priority 100 \
           --direction inbound \
           --access Allow \
-          --source-address-prefixes "$RUNNER_IP/32"
-          --source-port-ranges '*'
-          --destination-address-prefixes '{{ needs.provision.outputs.control_node_ip }}'/32 \
+          --source-address-prefixes "$RUNNER_IP/32" \
+          --destination-address-prefixes "${{ needs.provision.outputs.control_node_ip }}/32" \
           --destination-port-ranges 22 \
           --protocol Tcp \
           --description "Allow single-source SSH access to control node"
