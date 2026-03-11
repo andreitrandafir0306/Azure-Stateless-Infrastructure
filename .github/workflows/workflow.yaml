@@ -68,25 +68,12 @@ jobs:
           TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
 
 
-      - name: Extract Control Node Public IP and create NSG rule for single-source access to the control node
+      - name: Extract Control Node Public IP
         id: tf_output
         working-directory: ./Terraform
         run: |
           CONTROL_NODE_IP=$(terraform output -raw control_node_ip)
           echo "control_node_ip=$CONTROL_NODE_IP" >> $GITHUB_OUTPUT
-          RUNNER_IP=$(curl -s https://api.ipify.org)
-          az network nsg rule create \
-          --resource-group ${{ vars.TF_BACKEND_RESOURCE_GROUP }} \
-          --nsg-name asi-nsg \
-          --name Control-node-access \
-          --priority 100 \
-          --direction inbound \
-          --access Allow \
-          --source-address-prefixes "$RUNNER_IP/32" \
-          --destination-address-prefixes "$CONTROL_NODE_IP/32" \
-          --destination-port-ranges 22 \
-          --protocol Tcp \
-          --description "Allow single-source SSH access to control node"
 
   configure:
     name: Configure & Deploy (Ansible)
@@ -96,6 +83,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Create NSG rule for single-source access to the control node
+        run: |
+          az network nsg rule create \
+          --resource-group ${{ vars.TF_BACKEND_RESOURCE_GROUP }} \
+          --nsg-name asi-nsg \
+          --name Control-node-access \
+          --priority 100 \
+          --direction inbound \
+          --access Allow \
+          --source-address-prefixes "$RUNNER_IP/32" \
+          --destination-address-prefixes "${{ needs.provision.outputs.control_node_ip }}/32" \
+          --destination-port-ranges 22 \
+          --protocol Tcp \
+          --description "Allow single-source SSH access to control node"
 
       - name: Setup SSH key
         run: |
@@ -159,7 +161,7 @@ jobs:
             EOF
 
       - name: Upload log as GH Artifact
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: ansible-playbook-output
