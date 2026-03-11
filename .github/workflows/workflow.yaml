@@ -15,7 +15,6 @@ env:
   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_BACKEND_RESOURCE_GROUP: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
-  TF_VAR_rg: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
   TF_BACKEND_STORAGE_ACCOUNT: ${{ vars.TF_BACKEND_STORAGE_ACCOUNT }}
   TF_BACKEND_CONTAINER: ${{ vars.TF_BACKEND_CONTAINER }}
   TF_BACKEND_KEY: ${{ vars.TF_BACKEND_KEY }}
@@ -60,7 +59,7 @@ jobs:
         run: terraform plan -out=tfplan
         env:
           TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
-          TF_VAR_rg: ${{ vars.TF_RESOURCE_GROUP }}
+          TF_VAR_rg: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
       
       - name: Terraform Apply
         working-directory: ./Terraform
@@ -213,4 +212,4 @@ jobs:
         run: terraform destroy -auto-approve
         env:
           TF_VAR_public_key: ${{ secrets.CONTROL_NODE_SSH_PUBLIC_KEY }}
-          TF_VAR_rg: ${{ vars.TF_RESOURCE_GROUP }}
+          TF_VAR_rg: ${{ vars.TF_BACKEND_RESOURCE_GROUP }}
