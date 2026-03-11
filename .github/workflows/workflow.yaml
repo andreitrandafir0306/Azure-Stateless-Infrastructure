@@ -84,6 +84,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Login to Azure via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Create NSG rule for single-source access to the control node
         run: |
           az network nsg rule create \
